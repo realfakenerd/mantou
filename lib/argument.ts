@@ -4,11 +4,11 @@ class Argument {
 	description = "";
 	variadic = false;
 	parseArg = undefined;
-	defaultValue = undefined;
-	defaultValueDescription = undefined;
-	argChoices = undefined;
+	defaultValue?: unknown = undefined;
+	defaultValueDescription?: string = undefined;
+	argChoices?: string[] = undefined;
 	required = true;
-	_name: string;
+	#name: string;
 
 	/**
 	 * Initialize a new command argument with the given name and description.
@@ -29,21 +29,21 @@ class Argument {
 		switch (name[0]) {
 			case "<": // e.g. <required>
 				this.required = true;
-				this._name = name.slice(1, -1);
+				this.#name = name.slice(1, -1);
 				break;
 			case "[": // e.g. [optional]
 				this.required = false;
-				this._name = name.slice(1, -1);
+				this.#name = name.slice(1, -1);
 				break;
 			default:
 				this.required = true;
-				this._name = name;
+				this.#name = name;
 				break;
 		}
 
-		if (this._name.length > 3 && this._name.slice(-3) === "...") {
+		if (this.#name.length > 3 && this.#name.slice(-3) === "...") {
 			this.variadic = true;
-			this._name = this._name.slice(0, -3);
+			this.#name = this.#name.slice(0, -3);
 		}
 	}
 
@@ -51,13 +51,10 @@ class Argument {
 	 * Return argument name.
 	 */
 	name() {
-		return this._name;
+		return this.#name;
 	}
 
-	/**
-	 * @package
-	 */
-	_concatValue(value: string, previous: string | string[]) {
+	#concatValue(value: string, previous: string | string[]) {
 		if (previous === this.defaultValue || !Array.isArray(previous)) {
 			return [value];
 		}
@@ -77,7 +74,7 @@ class Argument {
 	/**
 	 * Set the custom handler for processing CLI command arguments into argument values.
 	 */
-	argParser(fn?: () => void): Argument {
+	argParser<T>(fn?: (value: string, previous: T) => T): Argument {
 		this.parseArg = fn;
 		return this;
 	}
@@ -85,7 +82,7 @@ class Argument {
 	/**
 	 * Only allow argument value to be one of choices.
 	 */
-	choices(values: string[]): Argument {
+	choices(values: readonly string[]): Argument {
 		this.argChoices = values.slice();
 		this.parseArg = (arg: string, previous: string) => {
 			if (!this.argChoices.includes(arg)) {
@@ -95,7 +92,7 @@ class Argument {
 			}
 
 			if (this.variadic) {
-				return this._concatValue(arg, previous);
+				return this.#concatValue(arg, previous);
 			}
 			return arg;
 		};
@@ -121,9 +118,7 @@ class Argument {
 
 /**
  * Takes an argument and returns its human readable equivalent for help usage.
- * @private
  */
-
 function humanReadableArgName(arg: Argument): string {
 	const nameOutput = arg.name() + (arg.variadic === true ? "..." : "");
 
