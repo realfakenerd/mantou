@@ -27,7 +27,7 @@ class Argument<
 	 * @param arg
 	 * @param description
 	 */
-	constructor(arg: Usage, description?: string) {
+	constructor(arg: Usage & string, description?: string) {
 		this.description = description;
 
 		switch (arg[0]) {
