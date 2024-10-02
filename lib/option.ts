@@ -1,6 +1,15 @@
+import type { OptionValues } from "../typings";
+
 const { InvalidArgumentError } = require("./error.js");
 
-class Option {
+class Option<
+	Usage extends string = "",
+	PresetT = undefined,
+	DefaultT = undefined,
+	CoerceT = undefined,
+	Mandatory extends boolean = false,
+	ChoicesT = undefined,
+> {
 	flags: string;
 	description: string;
 	required: boolean;
@@ -11,17 +20,17 @@ class Option {
 	negate = false;
 
 	short: string;
-	long: string;
+	long?: string;
 
-	defaultValue = undefined;
-	defaultValueDescription = undefined;
-	presetArg = undefined;
-	envVar = undefined;
-	parseArg = undefined;
+	defaultValue?: unknown = undefined;
+	defaultValueDescription?: string = undefined;
+	presetArg?: unknown = undefined;
+	envVar?: string = undefined;
+	parseArg?: <T>(value: string, previous: T) => T = undefined;
 	hidden = false;
-	argChoices = undefined;
+	argChoices?: string[] = undefined;
 	conflictsWith: unknown[] = [];
-	implied = undefined;
+	implied?: OptionValues = undefined;
 
 	/**
 	 * Initialize a new `Option` with the given `flags` and `description`.
@@ -30,7 +39,7 @@ class Option {
 	 * @param description
 	 */
 
-	constructor(flags: string, description?: string) {
+	constructor(flags: Usage, description?: string) {
 		this.flags = flags;
 		this.description = description || "";
 
@@ -51,11 +60,11 @@ class Option {
 
 	/**
 	 * Set the default value, and optionally supply the description to be displayed in the help.
-	 *
-	 * @param value
-	 * @param description
 	 */
-	default(value: unknown, description?: string): Option {
+	default<T>(
+		value: T,
+		description?: string,
+	): Option<Usage, PresetT, T, CoerceT, Mandatory, ChoicesT> {
 		this.defaultValue = value;
 		this.defaultValueDescription = description;
 		return this;
@@ -71,7 +80,7 @@ class Option {
 	 *
 	 * @param arg
 	 */
-	preset(arg: unknown): Option {
+	preset<T>(arg: T): Option<Usage, T, DefaultT, CoerceT, Mandatory, ChoicesT> {
 		this.presetArg = arg;
 		return this;
 	}
@@ -86,7 +95,7 @@ class Option {
 	 *
 	 * @param names
 	 */
-	conflicts(names: string | string[]): Option {
+	conflicts(names: string | string[]): this {
 		this.conflictsWith = this.conflictsWith.concat(names);
 		return this;
 	}
@@ -100,10 +109,8 @@ class Option {
 	 * program
 	 *   .addOption(new Option('--log', 'write logging information to file'))
 	 *   .addOption(new Option('--trace', 'log extra details').implies({ log: 'trace.txt' }));
-	 *
-	 * @param impliedOptionValues
 	 */
-	implies(impliedOptionValues: object): Option {
+	implies(impliedOptionValues: OptionValues): this {
 		let newImplied = impliedOptionValues;
 		if (typeof impliedOptionValues === "string") {
 			// string is not documented, but easy mistake and we can do what user probably intended.
@@ -121,45 +128,41 @@ class Option {
 	 *
 	 * @param  name
 	 */
-	env(name: string): Option {
+	env(name: string): this {
 		this.envVar = name;
 		return this;
 	}
 
 	/**
 	 * Set the custom handler for processing CLI option arguments into option values.
-	 *
-	 * @param fn
 	 */
-	argParser(fn?: () => void): Option {
+	argParser<T>(
+		fn?: (value: string, previous: T) => T,
+	): Option<Usage, PresetT, DefaultT, T, Mandatory, undefined> {
+		// @ts-expect-error just overrind the type
 		this.parseArg = fn;
 		return this;
 	}
 
 	/**
 	 * Whether the option is mandatory and must have a value after parsing.
-	 *
-	 * @param mandatory
 	 */
-	makeOptionMandatory(mandatory = true): Option {
+	makeOptionMandatory<M extends boolean = true>(
+		mandatory = true as M,
+	): Option<Usage, PresetT, DefaultT, CoerceT, M, ChoicesT> {
 		this.mandatory = !!mandatory;
 		return this;
 	}
 
 	/**
 	 * Hide option in help.
-	 *
-	 * @param hide
 	 */
-	hideHelp(hide = true): Option {
+	hideHelp(hide = true): this {
 		this.hidden = !!hide;
 		return this;
 	}
 
-	/**
-	 * @package
-	 */
-	_concatValue(value: string, previous: string | string[]) {
+	#concatValue(value: string, previous: string | string[]) {
 		if (previous === this.defaultValue || !Array.isArray(previous)) {
 			return [value];
 		}
@@ -169,19 +172,20 @@ class Option {
 
 	/**
 	 * Only allow option value to be one of choices.
-	 *
-	 * @param values
 	 */
-	choices(values: string[]): Option {
+	choices<T extends readonly string[]>(
+		values: T,
+	): Option<Usage, PresetT, DefaultT, undefined, Mandatory, T[number]> {
 		this.argChoices = values.slice();
+		// @ts-expect-error just overriding the type
 		this.parseArg = (arg: string, previous: string) => {
-			if (!this.argChoices.includes(arg)) {
+			if (!this.argChoices?.includes(arg)) {
 				throw new InvalidArgumentError(
-					`Allowed choices are ${this.argChoices.join(", ")}.`,
+					`Allowed choices are ${this.argChoices?.join(", ")}.`,
 				);
 			}
 			if (this.variadic) {
-				return this._concatValue(arg, previous);
+				return this.#concatValue(arg, previous);
 			}
 			return arg;
 		};
@@ -209,8 +213,6 @@ class Option {
 
 	/**
 	 * Check if `arg` matches the short or long flag.
-	 *
-	 * @param arg
 	 * @package
 	 */
 	is(arg: string): boolean {
@@ -272,7 +274,7 @@ class DualOptions {
 		if (!this.dualOptions.has(optionKey)) return true;
 
 		// Use the value to deduce if (probably) came from the option.
-		const preset = this.negativeOptions.get(optionKey).presetArg;
+		const preset = this.negativeOptions.get(optionKey)?.presetArg;
 		const negativeValue = preset !== undefined ? preset : false;
 		return option.negate === (negativeValue === value);
 	}
@@ -291,8 +293,8 @@ function camelcase(str: string) {
  * Split the short and long flag out of something like '-m,--mixed <value>'
  */
 function splitOptionFlags(flags: string) {
-	let shortFlag: string;
-	let longFlag: string;
+	let shortFlag = "";
+	let longFlag = "";
 
 	// Use original very loose parsing to maintain backwards compatibility for now,
 	// which allowed for example unintended `-sw, --short-word` [sic].
