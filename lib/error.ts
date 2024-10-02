@@ -4,14 +4,15 @@
 class CommanderError extends Error {
 	code: string;
 	exitCode: number;
-	nestedError: unknown;
+	nestedError?: string;
+
 	/**
 	 * Constructs the CommanderError class
 	 * @param exitCode suggested exit code which could be used with process.exit
 	 * @param code an id string representing the error
 	 * @param message human-readable description of the error
 	 */
-	constructor(exitCode: number, code: string, message: string) {
+	constructor(exitCode: number, code: string, message?: string) {
 		super(message);
 
 		// properly capture stack trace in Node.js
