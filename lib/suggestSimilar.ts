@@ -96,4 +96,4 @@ function suggestSimilar(word: string, candidates: string[]): string {
 	return "";
 }
 
-exports.suggestSimilar = suggestSimilar;
+export { suggestSimilar };
