@@ -1,3 +1,4 @@
+import type { CommandUnknownOpts } from "../typings";
 import { type Argument, humanReadableArgName } from "./argument";
 import type { Command } from "./command";
 import type { Option } from "./option";
@@ -12,7 +13,7 @@ class Help {
 	/**
 	 * Get an array of the visible subcommands. Includes a placeholder for the implicit help command, if there is one.
 	 */
-	visibleCommands(cmd: Command): Command[] {
+	visibleCommands(cmd: Command): CommandUnknownOpts[] {
 		const visibleCommands = cmd.commands.filter((cmd) => !cmd._hidden);
 		const helpCommand = cmd._getHelpCommand();
 		if (helpCommand && !helpCommand._hidden) {
@@ -20,7 +21,6 @@ class Help {
 		}
 		if (this.sortSubcommands) {
 			visibleCommands.sort((a, b) => {
-				// @ts-expect-error: because overloaded return type
 				return a.name().localeCompare(b.name());
 			});
 		}
@@ -30,20 +30,19 @@ class Help {
 	/**
 	 * Compare options for sort.
 	 */
-	compareOptions(a: Option, b: Option): number {
-		const getSortKey = (option) => {
+	compareOptions(a: Option, b: Option) {
+		const getSortKey = (option: Option) => {
 			// WYSIWYG for order displayed in help. Short used for comparison if present. No special handling for negated.
 			return option.short
 				? option.short.replace(/^-/, "")
-				: option.long.replace(/^--/, "");
+				: option.long?.replace(/^--/, "");
 		};
-		return getSortKey(a).localeCompare(getSortKey(b));
+		return getSortKey(a)?.localeCompare(getSortKey(b) ?? "");
 	}
 
 	/**
 	 * Get an array of the visible options. Includes a placeholder for the implicit help option, if there is one.
 	 */
-
 	visibleOptions(cmd: Command): Option[] {
 		const visibleOptions = cmd.options.filter((option) => !option.hidden);
 		// Built-in help option.
@@ -65,6 +64,7 @@ class Help {
 			}
 		}
 		if (this.sortOptions) {
+			//@ts-expect-error
 			visibleOptions.sort(this.compareOptions);
 		}
 		return visibleOptions;
@@ -76,7 +76,7 @@ class Help {
 	visibleGlobalOptions(cmd: Command): Option[] {
 		if (!this.showGlobalOptions) return [];
 
-		const globalOptions = [];
+		const globalOptions: Option[] = [];
 		for (
 			let ancestorCmd = cmd.parent;
 			ancestorCmd;
@@ -88,6 +88,7 @@ class Help {
 			globalOptions.push(...visibleOptions);
 		}
 		if (this.sortOptions) {
+			// @ts-expect-error
 			globalOptions.sort(this.compareOptions);
 		}
 		return globalOptions;
@@ -277,6 +278,7 @@ class Help {
 			}
 			return extraDescripton;
 		}
+		// @ts-expect-error
 		return argument.description;
 	}
 
@@ -425,6 +427,4 @@ class Help {
 	}
 }
 
-export {
-	Help
-}
+export { Help };
