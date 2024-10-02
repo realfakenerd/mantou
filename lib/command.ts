@@ -19,6 +19,8 @@ import type {
 	ParseOptionsResult,
 	InferCommmandArguments,
 	InferArgument,
+	InferOptions,
+	ParseOptions,
 } from "../typings/index";
 import { Argument, humanReadableArgName } from "./argument";
 import { CommanderError } from "./error";
@@ -60,7 +62,7 @@ class Command<
 	_argsDescription?: Record<string, string> = undefined;
 	_enablePositionalOptions = false;
 	_passThroughOptions = false;
-	#lifeCycleHooks = {
+	_lifeCycleHooks = {
 		postAction: null,
 		preAction: null,
 		preSubcommand: null,
@@ -125,7 +127,7 @@ class Command<
 	#getCommandAndAncestors(): Command[] {
 		const result: Command[] = [];
 
-		let command = this;
+		let command = this as unknown as Command;
 		for (command; command; command = command.parent) {
 			result.push(command as unknown as Command);
 		}
@@ -178,7 +180,7 @@ class Command<
 		nameAndArgs: string,
 		description?: string,
 		opts?: ExecutableCommandOptions,
-	): Command {
+	): this {
 		let desc = description;
 		let _opts = opts;
 
@@ -302,12 +304,12 @@ class Command<
 	 * @return `this` command for chaining
 	 */
 	addCommand(cmd: CommandUnknownOpts, opts: CommandOptions = {}): this {
-		if (!cmd.#name) {
+		if (!cmd._name) {
 			throw new Error(`Command passed to .addCommand() must have a name
 - specify the name in Command constructor or using .name()`);
 		}
 
-		if (opts.isDefault) this._defaultCommandName = cmd.#name;
+		if (opts.isDefault) this._defaultCommandName = cmd._name;
 		if (opts.noHelp || opts.hidden) cmd._hidden = true; // modifying passed command due to existing implementation
 
 		this.#registerCommand(cmd);
@@ -525,10 +527,10 @@ class Command<
 			throw new Error(`Unexpected value for event passed to hook : '${event}'.
 Expecting one of '${allowedValues.join("', '")}'`);
 		}
-		if (this.#lifeCycleHooks[event]) {
-			this.#lifeCycleHooks[event].push(listener);
+		if (this._lifeCycleHooks[event]) {
+			this._lifeCycleHooks[event].push(listener);
 		} else {
-			this.#lifeCycleHooks[event] = [listener];
+			this._lifeCycleHooks[event] = [listener];
 		}
 		return this;
 	}
@@ -729,7 +731,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
 			if (val !== null && option.parseArg) {
 				val = this.#callParseArg(option, val, oldValue, invalidValueMessage);
 			} else if (val !== null && option.variadic) {
-				val = option.#concatValue(val, oldValue);
+				val = option._concatValue(val, oldValue);
 			}
 
 			// Fill-in appropriate missing values. Long winded but easy to follow.
@@ -763,8 +765,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
 	/**
 	 * Internal implementation shared by .option() and .requiredOption()
 	 *
-	 * @return {Command} `this` command for chaining
-	 * @private
+	 * @return `this` command for chaining
 	 */
 	_optionEx(config, flags, description, fn, defaultValue): Command {
 		if (typeof flags === "object" && flags instanceof Option) {
@@ -806,19 +807,27 @@ Expecting one of '${allowedValues.join("', '")}'`);
 	 *     .option('-c, --cheese [CHEESE]', 'add extra cheese', 'mozzarella') // optional option-argument with default
 	 *     .option('-t, --tip <VALUE>', 'add tip to purchase cost', parseFloat) // custom parse function
 	 *
-	 * @param {string} flags
-	 * @param {string} [description]
-	 * @param {(Function|*)} [parseArg] - custom option processing function or default value
-	 * @param {*} [defaultValue]
-	 * @return {Command} `this` command for chaining
 	 */
-
-	option(
-		flags: string,
-		description: string,
-		parseArg: Function | unknown,
-		defaultValue: unknown,
-	): Command {
+	option<S extends string>(
+		flags: S,
+		description?: string,
+	): Command<Args, InferOptions<Opts, S, undefined, undefined, false>>;
+	option<S extends string, DefaultT extends string | boolean | string[] | []>(
+		flags: S,
+		description?: string,
+		defaultValue?: DefaultT,
+	): Command<Args, InferOptions<Opts, S, DefaultT, undefined, false>>;
+	option<S extends string, T>(
+		flags: S,
+		description?: string,
+		parseArg?: (value: string, previous: T) => T,
+	): Command<Args, InferOptions<Opts, S, undefined, T, false>>;
+	option<S extends string, T>(
+		flags: S,
+		description?: string,
+		parseArg?: (value: string, previous: T) => T,
+		defaultValue?: T,
+	): Command<Args, InferOptions<Opts, S, T, T, false>> {
 		return this._optionEx({}, flags, description, parseArg, defaultValue);
 	}
 
@@ -1123,13 +1132,12 @@ Expecting one of '${allowedValues.join("', '")}'`);
 	 * program.parse(process.argv); // assume argv[0] is app and argv[1] is script
 	 * program.parse(my-args, { from: 'user' }); // just user supplied arguments, nothing special about argv[0]
 	 *
-	 * @param {string[]} [argv] - optional, defaults to process.argv
-	 * @param {object} [parseOptions] - optionally specify style of options with from: node/user/electron
-	 * @param {string} [parseOptions.from] - where the args are from: 'node', 'user', 'electron'
-	 * @return {Command} `this` command for chaining
+	 * @param argv - optional, defaults to process.argv
+	 * @param parseOptions - optionally specify style of options with from: node/user/electron
+	 * @param parseOptions.from - where the args are from: 'node', 'user', 'electron'
+	 * @return `this` command for chaining
 	 */
-
-	parse(argv: string[], parseOptions: { from?: string }): Command {
+	parse(argv?: readonly string[], parseOptions?: ParseOptions): this {
 		const userArgs = this._prepareUserArgs(argv, parseOptions);
 		this.#parseCommand([], userArgs);
 
@@ -1459,8 +1467,8 @@ Expecting one of '${allowedValues.join("', '")}'`);
 
 		for (const hookedCommand of this.#getCommandAndAncestors()
 			.reverse()
-			.filter((cmd) => cmd.#lifeCycleHooks[event] !== undefined)) {
-			for (const callback of hookedCommand.#lifeCycleHooks[event]) {
+			.filter((cmd) => cmd._lifeCycleHooks[event] !== undefined)) {
+			for (const callback of hookedCommand._lifeCycleHooks[event]) {
 				hooks.push({ hookedCommand, callback });
 			}
 		}
@@ -1483,8 +1491,8 @@ Expecting one of '${allowedValues.join("', '")}'`);
 		event: string,
 	): Promise<T> | undefined {
 		let result = promise;
-		if (this.#lifeCycleHooks[event] !== undefined) {
-			for (const hook of this.#lifeCycleHooks[event]) {
+		if (this._lifeCycleHooks[event] !== undefined) {
+			for (const hook of this._lifeCycleHooks[event]) {
 				result = this.#chainOrCall(result, () => {
 					return hook(this, subCommand);
 				});
@@ -1596,14 +1604,14 @@ Expecting one of '${allowedValues.join("', '")}'`);
 	#findCommand(name?: string): Command | undefined {
 		if (!name) return undefined;
 		return this.commands.find(
-			(cmd) => cmd.#name === name || cmd.#aliases.includes(name),
+			(cmd) => cmd._name === name || cmd._aliases.includes(name),
 		);
 	}
 
 	/**
 	 * Return an option matching `arg` if unknown.
 	 */
-	_findOption(arg: string): Option {
+	_findOption(arg?: string) {
 		return this.options.find((option) => option.is(arg));
 	}
 
@@ -1682,8 +1690,8 @@ Expecting one of '${allowedValues.join("', '")}'`);
 
 		let dest = operands;
 
-		function maybeOption(arg: string) {
-			return arg.length > 1 && arg[0] === "-";
+		function maybeOption(arg?: string) {
+			return arg && arg.length > 1 && arg[0] === "-";
 		}
 
 		// parse options
@@ -1729,7 +1737,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
 			}
 
 			// Look for combo options following single dash, eat first one if known.
-			if (arg.length > 2 && arg[0] === "-" && arg[1] !== "-") {
+			if (arg && arg.length > 2 && arg[0] === "-" && arg[1] !== "-") {
 				const option = this._findOption(`-${arg[1]}`);
 				if (option) {
 					if (
@@ -1748,7 +1756,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
 			}
 
 			// Look for known long flag with value, like --foo=bar
-			if (/^--[^=]+=/.test(arg)) {
+			if (arg && /^--[^=]+=/.test(arg)) {
 				const index = arg.indexOf("=");
 				const option = this._findOption(arg.slice(0, index));
 				if (option && (option.required || option.optional)) {
@@ -1806,7 +1814,7 @@ Expecting one of '${allowedValues.join("', '")}'`);
 	/**
 	 * Return an object containing local option values as key-value pairs.
 	 */
-	opts<T extends OptionValues>(): T {
+	opts(): Opts {
 		if (this._storeOptionsAsProperties) {
 			// Preserve original behaviour so backwards compatible when still using properties
 			const result: OptionValues = {};
@@ -1818,10 +1826,10 @@ Expecting one of '${allowedValues.join("', '")}'`);
 				result[key] =
 					key === this.#versionOptionName ? this.#version : this[key];
 			}
-			return result as T;
+			return result as Opts;
 		}
 
-		return this.#optionValues as T;
+		return this.#optionValues as Opts;
 	}
 
 	/**
